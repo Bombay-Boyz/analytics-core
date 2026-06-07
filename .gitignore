@@ -1,0 +1,90 @@
+# =========================
+# Haskell - Stack
+# =========================
+.stack-work/
+
+# =========================
+# Haskell - Cabal
+# =========================
+dist/
+dist-*/
+cabal-dev/
+cabal-dev-*/
+cabal.sandbox.config
+cabal.project.local
+cabal.project.local~
+cabal.project.freeze
+
+# =========================
+# GHC
+# =========================
+*.hi
+*.hie
+*.chi
+*.chs.h
+*.dyn_hi
+*.dyn_o
+*.o
+*.p_o
+*.p_hi
+*.prof
+*.aux
+*.hp
+*.eventlog
+
+# Executables
+*.exe
+*.exe~
+*.out
+
+# =========================
+# HLS / IDE
+# =========================
+.hie/
+.ghc.environment.*
+.implicit-hie/
+
+# =========================
+# Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Test / Coverage
+# =========================
+coverage/
+hpc/
+*.tix
+
+# =========================
+# Nix
+# =========================
+result
+result-*
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Environment Files
+# =========================
+.env
+.env.*
+
+# =========================
+# Temporary Files
+# =========================
+tmp/
+temp/

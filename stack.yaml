@@ -1,0 +1,10 @@
+resolver: lts-22.43
+system-ghc: true
+install-ghc: false
+compiler: ghc-9.6.7
+packages:
+  - .
+extra-deps:
+  - validation-selective-0.2.0.0
+  - nonempty-containers-0.3.4.4
+  - optics-core-0.4.1
