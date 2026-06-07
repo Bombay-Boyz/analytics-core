@@ -242,6 +242,11 @@ data InferenceState = InferenceState
   , isContentSet    :: !(Set FactContent)
     -- ^ Secondary index for O(1) idempotency checks (Def 3.12).
     -- Must be kept in exact sync with 'isFactMap'.
+  , isContentMap    :: !(Map FactContent (Fact 'NormalFact))
+    -- ^ Reverse index: content → existing fact. Kept in sync with 'isFactMap'.
+    -- Used at suppression time to distinguish 'suppressed-by-assertion' (the
+    -- existing fact is 'Asserted') from 'suppressed-duplicate-content' (it is
+    -- 'Derived'). O(1) lookup; no scan of 'isFactMap' needed (spec §3.12).
   , isDeltaMap      :: !(Map FactId (Fact 'NormalFact))
     -- ^ Facts derived in the *previous* iteration.
     -- 'Map.null isDeltaMap' is the fixed-point termination condition.
@@ -305,6 +310,7 @@ runInference config bus snap initialActiveFacts rules = do
   let initState = InferenceState
         { isFactMap       = initialFacts
         , isContentSet    = Set.fromList (map factContent (Map.elems initialFacts))
+        , isContentMap    = Map.fromList [(factContent f, f) | f <- Map.elems initialFacts]
         , isDeltaMap      = initialFacts  -- first iteration is naive: delta = all
         , isDepthIndex    = initialDepthIdx
         , isEvidence      = Map.empty
@@ -432,9 +438,20 @@ runIteration bus snap rules state ts = do
           pairs
 
   -- Emit EvFactRejected for each suppressed content-duplicate (spec §3.12).
-  forM_ suppressedPairs $ \(f, _ev) ->
-    ebPublish bus
-      (EvFactRejected (inferPluginId f) "suppressed-duplicate-content" f)
+  -- Distinguish two cases:
+  --   'suppressed-by-assertion' — an *asserted* fact with the same content
+  --     already exists. The derivation is silently skipped. If that asserted
+  --     fact is later retracted, inference must treat this derivation as
+  --     eligible for re-insertion (spec §3.12 re-derivation clause).
+  --   'suppressed-duplicate-content' — a *derived* fact with the same content
+  --     already exists. Pure idempotency; no re-derivation semantics apply.
+  -- The distinction is audit-critical: consumers cannot otherwise tell whether
+  -- inference is shadowed by an explicit assertion.
+  forM_ suppressedPairs $ \(f, _ev) -> do
+    let reason = case Map.lookup (factContent f) (isContentMap state) of
+          Just (Asserted {}) -> "suppressed-by-assertion"
+          _                  -> "suppressed-duplicate-content"
+    ebPublish bus (EvFactRejected (inferPluginId f) reason f)
 
   -- Emit EvRuleFired for each genuinely new derived fact (spec §20).
   -- The (Fact, Evidence) pairs are guaranteed 1:1 by construction above.
@@ -447,8 +464,9 @@ runIteration bus snap rules state ts = do
   let genuinelyNew = map fst genuinePairs
       newEvidence  = map snd genuinePairs
 
-  let newFactMap  = Map.fromList [(factRecordId f, f) | f <- genuinelyNew]
-      newContents = Set.fromList (map factContent genuinelyNew)
+  let newFactMap    = Map.fromList [(factRecordId f, f) | f <- genuinelyNew]
+      newContents   = Set.fromList (map factContent genuinelyNew)
+      newContentMap = Map.fromList [(factContent f, f) | f <- genuinelyNew]
 
   -- Merge new evidence into the keyed index (LOGIC-02).
   let newEvIndex = Map.fromListWith (<>)
@@ -462,6 +480,7 @@ runIteration bus snap rules state ts = do
   pure state
     { isFactMap       = Map.union (isFactMap state) newFactMap
     , isContentSet    = Set.union (isContentSet state) newContents
+    , isContentMap    = Map.union (isContentMap state) newContentMap
     , isDeltaMap      = newFactMap
     , isDepthIndex    = Map.union (isDepthIndex state) newDepthEntries
     , isEvidence      = Map.unionWith (<>) (isEvidence state) newEvIndex

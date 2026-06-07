@@ -49,14 +49,14 @@ module Analytics.Core.Query
   , WhyQuery(..)
   , HowQuery(..)
   , ContradictionsQuery(..)
-  , DependenciesQuery(..)
+  , ProvenanceQuery(..)
   , EvidenceQuery(..)
 
     -- * Result types
   , WhyResult(..)
   , HowResult(..)
   , ContradictionsResult(..)
-  , DependenciesResult(..)
+  , ProvenanceResult(..)
   , EvidenceResult(..)
 
     -- * Justification tree
@@ -127,7 +127,7 @@ data QueryResultKind
   = WhyKind
   | HowKind
   | ContradictionsKind
-  | DependenciesKind
+  | ProvenanceKind
   | EvidenceKind
   | FactsKind
   | PluginKind
@@ -144,7 +144,7 @@ type family QueryResultOf (k :: QueryResultKind) where
   QueryResultOf 'WhyKind            = WhyResult
   QueryResultOf 'HowKind            = HowResult
   QueryResultOf 'ContradictionsKind = ContradictionsResult
-  QueryResultOf 'DependenciesKind   = DependenciesResult
+  QueryResultOf 'ProvenanceKind     = ProvenanceResult
   QueryResultOf 'EvidenceKind       = EvidenceResult
   QueryResultOf 'FactsKind          = [Fact 'NormalFact]
   QueryResultOf 'PluginKind         = Value
@@ -192,9 +192,15 @@ data ContradictionsQuery = ContradictionsQuery
 -- | Ask: what does this fact depend on (transitively)?
 -- Returns the subgraph of facts reachable via 'DerivedFrom' edges from the
 -- requested fact, up to the specified depth.
-data DependenciesQuery = DependenciesQuery
+--
+-- Note: this is a provenance traversal over the derivation graph — it answers
+-- "which ancestor facts was this fact derived from?"  It is distinct from the
+-- spec's DependenciesQuery (§15.3.4), which asks "which fact types does a
+-- rule structurally depend on?" via 'DependsOn' edges.  That query operates
+-- on rules, not facts, and is not yet implemented.
+data ProvenanceQuery = ProvenanceQuery
   { dqFactId   :: !FactId
-    -- ^ Root of the dependency traversal.
+    -- ^ Root of the provenance traversal.
   , dqMaxDepth :: !QueryDepth
     -- ^ Maximum graph traversal depth.
   , dqGraph    :: !Graph
@@ -218,7 +224,7 @@ data Query (k :: QueryResultKind) where
   QWhy            :: !WhyQuery            -> Query 'WhyKind
   QHow            :: !HowQuery            -> Query 'HowKind
   QContradictions :: !ContradictionsQuery -> Query 'ContradictionsKind
-  QDependencies   :: !DependenciesQuery   -> Query 'DependenciesKind
+  QProvenance     :: !ProvenanceQuery     -> Query 'ProvenanceKind
   QEvidence       :: !EvidenceQuery       -> Query 'EvidenceKind
   QFacts          :: !FactQuery           -> Query 'FactsKind
   QRules          :: !RuleQuery           -> Query 'PluginKind
@@ -313,14 +319,14 @@ data ContradictionsResult = ContradictionsResult
     -- more records than the query limit returned.
   } deriving stock (Show)
 
--- | Result of 'QDependencies': the dependency subgraph.
-data DependenciesResult = DependenciesResult
-  { drRootFact    :: !FactId
+-- | Result of 'QProvenance': the provenance subgraph reachable from a fact.
+data ProvenanceResult = ProvenanceResult
+  { drRootFact     :: !FactId
     -- ^ The root fact the traversal started from.
-  , drReachable   :: ![Fact 'NormalFact]
+  , drReachable    :: ![Fact 'NormalFact]
     -- ^ All facts reachable from the root via 'DerivedFrom' edges within
     -- 'dqMaxDepth' hops.  Does not include the root fact itself.
-  , drEdgeCount   :: !Natural
+  , drEdgeCount    :: !Natural
     -- ^ Number of 'DerivedFrom' edges in the traversed subgraph.
   , drDepthReached :: !Natural
     -- ^ Maximum depth actually traversed (≤ 'unQueryDepth dqMaxDepth').
@@ -355,7 +361,7 @@ data QueryError
     -- Caller should retry with a larger 'QueryDepth' or inspect the graph
     -- for unexpected depth.
   | QEGraphMissing
-    -- ^ A 'QDependencies' query was submitted but the graph was empty.
+    -- ^ A 'QProvenance' query was submitted but the graph was empty.
   | QEQueryTimeout     !Natural
     -- ^ The query exceeded a wall-clock deadline; elapsed milliseconds carried.
   deriving stock (Show, Eq)
@@ -377,8 +383,8 @@ class QueryEngine qe where
   -- | Execute a query against the engine's current state.
   --
   -- Caller responsibilities:
-  --   * Pass a 'DependenciesQuery' with an up-to-date 'Graph' for
-  --     'QDependencies' queries; the engine does not maintain the graph
+  --   * Pass a 'ProvenanceQuery' with an up-to-date 'Graph' for
+  --     'QProvenance' queries; the engine does not maintain the graph
   --     internally.
   --   * 'QFacts' and 'QRules' queries use 'FactQuery' / 'RuleQuery' from
   --     'Analytics.Core.Storage'; the engine applies them directly.
